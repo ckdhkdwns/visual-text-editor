@@ -26,6 +26,18 @@
 #define CTRL(c) ((c) & 037)
 #endif
 
+#ifndef FN
+#define FN(c) ((c) & 0x1B)
+#endif
+
+#define ARROWS 033
+#define ARROW_UP 'A'
+#define ARROW_DOWN 'B'
+#define ARROW_RIGHT 'C'
+#define ARROW_LEFT 'D'
+#define END 'F'
+#define HOME 'H'
+
 typedef struct Node
 {
     struct Node *prev;
@@ -52,6 +64,7 @@ typedef struct DocumentInfo
 
     Node *frameFirstNode;
     Node *frameLastNode;
+    int frameX;
     int frameY;
 } DocumentInfo;
 
@@ -150,6 +163,8 @@ void initDocumentInfo(void)
 
     documentInfo->frameFirstNode = head;
     documentInfo->frameLastNode = tail;
+
+    documentInfo->frameX = 0;
     documentInfo->frameY = 0;
 }
 
@@ -161,6 +176,7 @@ void initFileInfo(void)
     fileInfo->isUpdated = false;
     fileInfo->isNewFile = true;
 }
+
 void insert(int data)
 {
     Node *new_node = (Node *)malloc(sizeof(Node));
@@ -178,7 +194,7 @@ void insert(int data)
 
 void delete()
 {
-    Node *prev = position->current->prev;    
+    Node *prev = position->current->prev;
     position->current->prev->next = position->current->next;
     position->current->next->prev = prev;
 
@@ -247,16 +263,30 @@ int next_row_length(void)
     return count;
 }
 
-
 void print()
 {
     if (fileInfo->isFileReading)
         return;
     clear();
     Node *p = documentInfo->frameFirstNode;
+
+    int colCount = 0;
+    int rowCount = 0;
     while (p->next != documentInfo->frameLastNode && p->next != tail)
     {
-        addch(p->next->data);
+        if (p->next->data == ENTER)
+        {
+            colCount = 0;
+            rowCount++;
+        }
+        else
+        {
+            if (colCount >= documentInfo->frameX && colCount < documentInfo->frameX + windowSize->x - 1)
+            { // 커서가 frame안에 있어야지만 출력함
+                mvaddch(rowCount, colCount - documentInfo->frameX, p->next->data);
+            }
+            colCount += 1;
+        }
         p = p->next;
     }
 
@@ -287,8 +317,9 @@ void print()
     mvprintw(windowSize->y - 1, 0, "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
     // 글이 없는 경우에는 ~표시를 하기
-    for(int i=0;i<windowSize->y-documentInfo->lineCount-2;i++) {
-        mvprintw(windowSize->y-3-i, 0, "~");
+    for (int i = 0; i < windowSize->y - documentInfo->lineCount - 2; i++)
+    {
+        mvprintw(windowSize->y - 3 - i, 0, "~");
     }
     move(position->y, position->x);
 }
@@ -298,7 +329,7 @@ void moveFirstFrameRight(void)
     if (fileInfo->isFileReading)
         return;
     documentInfo->frameFirstNode = documentInfo->frameFirstNode->next;
-    while (documentInfo->frameFirstNode->data != ENTER )
+    while (documentInfo->frameFirstNode->data != ENTER)
     {
         documentInfo->frameFirstNode = documentInfo->frameFirstNode->next;
     }
@@ -341,42 +372,58 @@ void backspace(void)
 {
     if (position->current == head)
         return;
-
+    int prl = prev_row_length();
+    int crl = current_row_length();
     if (position->x == 0 && position->y == 0)
     { // 페이지의 제일 처음인 경우 (문서 처음 x)
-        int prl = prev_row_length();
-        move(0, prl);
-        position->x = prl;
-        moveFirstFrameLeft();
-        moveLastFrameLeft();
-        documentInfo->frameY--;
-        documentInfo->lineCount--;
+        if (crl > 0 && documentInfo->frameX > 0)
+        { // 커서가 frame의 제일 처음인 경우
+            documentInfo->frameX--;
+        }
+        else
+        {
+            position->y = 0;
+            position->x = prl;
+            moveFirstFrameLeft();
+            moveLastFrameLeft();
+            documentInfo->frameY--;
+            documentInfo->lineCount--;
+        }
     }
     else if (position->x == 0)
-    { // 위 경우를 제외하고 커서가 라인의 제일 처음인 경우
-        int prl = prev_row_length();
-        
-        if(documentInfo->frameLastNode == tail && documentInfo->frameY != 0) {
-            moveFirstFrameLeft();
-            documentInfo->frameY --;
-            
-            move(position->y, prl);
-            position->x = prl;    
-            
-        } else {
-            move(--position->y, prl);
-            position->x = prl;
-            moveLastFrameRight();
+    { // 위 경우를 제외하고 커서가 제일 처음인 경우
+
+        if (crl > 0 && documentInfo->frameX > 0)
+        { // 커서가 frame의 제일 처음인 경우
+            documentInfo->frameX--;
         }
-        
-        documentInfo->lineCount--;
-
-
+        else
+        { // 커서가 진짜 라인의 제일 처음인 경우
+            if (documentInfo->frameLastNode == tail && documentInfo->frameY != 0)
+            { // 페이지가 제일 아래로 내려가 있는 경우
+                moveFirstFrameLeft();
+                documentInfo->frameY--;
+                position->x = prl;
+            }
+            else
+            { // 페이지가 제일 아래가 아닌 경우
+                position->y--;
+                position->x = prl;
+                moveLastFrameRight();
+            }
+            if (prl + 1 > windowSize->x)
+            { // 이전 줄이 윈도우 x크기보다 긴 경우
+                documentInfo->frameX = prl - windowSize->x + 1;
+                position->x = windowSize->x - 1;
+            }
+            documentInfo->lineCount--;
+        }
     }
     else
     {
-        move(position->y, --position->x);
+        position->x--;
     }
+    move(position->y, position->x);
     delete ();
     print();
 }
@@ -385,6 +432,7 @@ void enter(void)
 {
     insert(ENTER);
     documentInfo->lineCount++;
+    documentInfo->frameX = 0;
     position->x = 0;
     if (documentInfo->lineCount >= windowSize->y - 1) // 문서의 라인 수가 화면 크기보다 클 경우
     {
@@ -405,34 +453,47 @@ void enter(void)
     { // 이외의 경우
         move(++position->y, 0);
     }
+
     print();
 }
 
 void arrow(void)
 {
     getch();
-    switch (getch())
+    char ch = getch();
+    switch (ch)
     {
-    case 'A': // arrow up
+    case ARROW_UP:
         if (position->y == 0 && documentInfo->frameY == 0)
             break;
+
         int prl = prev_row_length();
-        if (prl > position->x)
+        if (prl > position->x + documentInfo->frameX)
         { // 윗줄이 커서의 x값보다 긴 경우
             for (int i = 0; i < prl + 1; i++)
             {
                 position->current = position->current->prev;
             }
-            move(--position->y, position->x);
+            position->y--;
         }
         else
         { // 윗줄이 커서의 x값보다 짧은 경우
-            for (int i = 0; i < position->x + 1; i++)
+            int crl = current_row_length();
+            for (int i = 0; i < crl + 1; i++)
             {
                 position->current = position->current->prev;
             }
-            move(--position->y, prl);
-            position->x = prl;
+
+            if (prl < documentInfo->frameX)
+            {
+                documentInfo->frameX = prl;
+                position->x = 0;
+            }
+            else
+            {
+                position->x = prl - documentInfo->frameX;
+            }
+            position->y--;
         }
         if (position->y < 0)
         {
@@ -441,28 +502,40 @@ void arrow(void)
             moveLastFrameLeft();
             documentInfo->frameY--;
         }
+        move(position->y, position->x);
         break;
-    case 'B': // arrow down
-        if (position->y + documentInfo->frameY == documentInfo->lineCount)
+
+    case ARROW_DOWN: // arrow down
+        if (position->y + documentInfo->frameY == documentInfo->lineCount - 1)
             break;
         int crl = current_row_length();
         int nrl = next_row_length();
-        if (nrl > position->x)
-        {
+        if (nrl > position->x + documentInfo->frameX)
+        { // 아래 줄이 커서의 x값보다 긴 경우
             for (int i = 0; i < crl + 1; i++)
-            { // 아래 줄이 커서의 x값보다 긴 경우
+            {
                 position->current = position->current->next;
             }
+            position->y++;
             move(++position->y, position->x);
         }
         else
         { // 아래 줄이 커서의 x값보다 짧은 경우
-            for (int i = 0; i < crl - position->x + nrl + 1; i++)
+            for (int i = 0; i < crl - (position->x + documentInfo->frameX) + nrl + 1; i++)
             {
                 position->current = position->current->next;
             }
-            move(++position->y, nrl);
-            position->x = nrl;
+
+            if (nrl < documentInfo->frameX)
+            {
+                documentInfo->frameX = nrl;
+                position->x = 0;
+            }
+            else
+            {
+                position->y++;
+                position->x = nrl - documentInfo->frameX;
+            }
         }
         if (position->y > windowSize->y - 3)
         {
@@ -471,19 +544,27 @@ void arrow(void)
             moveLastFrameRight();
             documentInfo->frameY++;
         }
+        move(position->y, position->x);
         break;
-    case 'C': // arrow right
+
+    case ARROW_RIGHT: // arrow right
         if (position->current->next == tail)
             break;
         position->current = position->current->next;
+
         if (position->current->data == ENTER)
         {
-            move(++position->y, 0);
+            documentInfo->frameX = 0;
+            position->y++;
             position->x = 0;
+        }
+        else if (position->x == windowSize->x - 2)
+        {
+            documentInfo->frameX++;
         }
         else
         {
-            move(position->y, ++position->x);
+            position->x++;
         }
         if (position->y == windowSize->y - 2)
         {
@@ -492,54 +573,87 @@ void arrow(void)
             moveFirstFrameRight();
             moveLastFrameRight();
         }
+        move(position->y, position->x);
         break;
-    case 'D': // arrow left
+    case ARROW_LEFT: // arrow left
         if (position->current == head)
             break;
-        position->current = position->current->prev;
-        if (position->current->next->data == ENTER)
-        {
-            position->x = current_row_length();
-            if (position->current->next == documentInfo->frameFirstNode)
+        if (position->current->data == ENTER)
+        { // 라인의 제일 첫번째에서 왼쪽 화살표를 누른 경우
+            int prl = prev_row_length();
+
+            if (prl > windowSize->x - 1)
             {
-                moveFirstFrameLeft();
-                moveLastFrameLeft();
-                move(position->y, position->x);
+                documentInfo->frameX = prl - windowSize->x - 1;
+                position->x = windowSize->x - 1;
             }
             else
             {
-                move(--position->y, position->x);
+                position->x = prl;
+            }
+
+            if (position->current == documentInfo->frameFirstNode)
+            { // 페이지의 제일 첫 부분인 경우
+                moveFirstFrameLeft();
+                moveLastFrameLeft();
+            }
+            else
+            {
+                position->y--;
             }
         }
         else
         {
-            move(position->y, --position->x);
+            position->x--;
         }
+        move(position->y, position->x);
+        position->current = position->current->prev;
+        break;
+
+    case HOME:
+        printw("HOME");
+        break;
+    case END:
+        printw("END");
+        break;
+    case '5':
+        getch();
+        printw("PAGEDOWN");
+        break;
+    case '6':
+        getch();
+        printw("PAGEUP");
         break;
     }
-    print();
+    
+
+    // print();
 }
 
 void save(void)
 {
-    if(fileInfo->isNewFile) {
-
-    }  
+    if (fileInfo->isNewFile)
+    {
+    }
     Node *p = head;
-    while(p->next == tail) {
-
+    while (p->next == tail)
+    {
     }
 }
 
 void commonKey(int key)
 {
-    move(position->y, ++position->x);
-    if (position->x == windowSize->x - 2)
+
+    if (position->x == windowSize->x - 1)
     {
-        documentInfo->lineCount++;
-        move(++position->y, 1);
-        position->x = 1;
+        documentInfo->frameX++;
+        // move(++position->y, 1);
+        // position->x = 1;
         //    enter();
+    }
+    else
+    {
+        move(position->y, ++position->x);
     }
     insert(key);
     print();
@@ -560,10 +674,11 @@ void readFile(char *filename)
     do
     {
         ch = fgetc(pFile);
-        if (ch == '\n') {
+        if (ch == '\n')
+        {
             enter();
         }
-            
+
         else
             commonKey(ch);
 
@@ -579,6 +694,7 @@ void readFile(char *filename)
     move(0, 0);
     position->x = 0;
     position->y = 0;
+    documentInfo->frameX = 0;
     documentInfo->frameY = 0;
     position->current = head;
     fileInfo->isFileReading = false;
@@ -598,7 +714,7 @@ void disableCtrlFunctions()
     tcgetattr(STDIN_FILENO, &orig_termios);
     struct termios raw = orig_termios;
     raw.c_iflag &= ~(IXON);
-    raw.c_lflag &= ~(IEXTEN | ISIG);
+    raw.c_lflag &= ~(IEXTEN | ISIG | ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
@@ -626,8 +742,7 @@ int main(int argc, char *argv[])
             enter();
             fileInfo->isUpdated = true;
         }
-
-        else if (key == '\033')
+        else if (key == ARROWS)
             arrow();
         else if (key == CTRL('f'))
             save();
@@ -635,6 +750,7 @@ int main(int argc, char *argv[])
             save();
         else if (key == CTRL('q'))
             ctrl_q();
+
         else
         {
             commonKey(key);
