@@ -37,6 +37,8 @@
 #define ARROW_LEFT 'D'
 #define END 'F'
 #define HOME 'H'
+#define PAGE_UP '5'
+#define PAGE_DOWN '6'
 
 typedef struct Node
 {
@@ -308,7 +310,8 @@ void print()
 
     sprintf(rightMessage, "%s | %d/%d",
             fileInfo->filetype,
-            position->y + 1, position->x);
+            position->y + 1 + documentInfo->frameY,
+            position->x + documentInfo->frameX);
 
     mvprintw(windowSize->y - 2, 0, "%s", leftMessage);
     mvprintw(windowSize->y - 2, windowSize->x - strlen(rightMessage), "%s", rightMessage);
@@ -640,13 +643,61 @@ void arrow(void)
         }
         move(position->y, position->x);
         break;
-    case '5':
+    case PAGE_UP:
         getch();
-        printw("PAGEDOWN");
+        if (documentInfo->frameFirstNode == head)
+            break;
+        if(documentInfo->frameY < windowSize->y - 2) {
+            int lineCount = documentInfo->frameY;
+            for(int i=0;i< lineCount; i++) {
+                moveFirstFrameLeft();
+                moveLastFrameLeft();
+            }
+            documentInfo->frameY = 0;
+        } else {
+               documentInfo->frameLastNode = documentInfo->frameFirstNode;
+               moveLastFrameRight();
+               for(int i=0;i<windowSize->y-3;i++) {
+                moveFirstFrameLeft();
+               }
+               documentInfo->frameY -= windowSize->y-3;
+        }
+        position->current = documentInfo->frameFirstNode;
+        position->x = 0;
+        position->y = 0;
+        
+        move(position->y, position->x);
         break;
-    case '6':
+
+    case PAGE_DOWN:
         getch();
-        printw("PAGEUP");
+        if (documentInfo->frameLastNode == tail)
+            break;
+        if (documentInfo->frameY + windowSize->y - 2 + windowSize->y - 2 > documentInfo->lineCount)
+        { // 한 페이지 전체를 넘길 수 없는 경우
+            int moveLineCount = documentInfo->lineCount - documentInfo->frameY - (windowSize->y - 2);
+            for (int i = 0; i < moveLineCount; i++)
+            {
+                moveFirstFrameRight();
+                moveLastFrameRight();
+            }
+            documentInfo->frameY += moveLineCount;
+        }
+        else
+        { // 한 페이지 전체를 넘길 수 있음
+            documentInfo->frameFirstNode = documentInfo->frameLastNode;
+            moveFirstFrameLeft();
+            for (int i = 0; i < windowSize->y - 3; i++)
+            {
+                moveLastFrameRight();
+            }
+            documentInfo->frameY += windowSize->y - 3;
+        }
+        position->current = documentInfo->frameFirstNode;
+        position->x = 0;
+        position->y = 0;
+        
+        move(position->y, position->x);
         break;
     }
 
@@ -734,6 +785,7 @@ void save(void)
             mvprintw(windowSize->y - 1, 0, "There are no changes to the file.");
         }
     }
+    fileInfo->isUpdated = false;
     fileInfo->isFileSaving = false;
     move(position->y, position->x);
 }
@@ -799,8 +851,28 @@ void readFile(char *filename)
     print();
 }
 
+void find(void)
+{
+    char word[100];
+    char rightMessage[100];
+    sprintf(rightMessage, "Arrows = prev/next result | Enter = go | Esc = cancel");
+    mvprintw(windowSize->y - 1, windowSize->x - strlen(rightMessage), rightMessage);
+}
 void ctrl_q(void)
 {
+    if (fileInfo->isUpdated)
+    {
+        for (int i = 0; i < windowSize->x; i++)
+            mvprintw(windowSize->y - 1, i, " ");
+        mvprintw(windowSize->y - 1, 0, "Press Ctrl-q again to leave without saving.");
+        int ch = getch();
+        if (ch != CTRL('q'))
+        {
+            move(position->y, position->x);
+            print();
+            return;
+        }
+    }
     endwin();
     exit(0);
 }
