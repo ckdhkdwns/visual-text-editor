@@ -73,6 +73,7 @@ typedef struct fileInfo
     char *filename;
     char *filetype;
     bool isFileReading;
+    bool isFileSaving;
     bool isUpdated;
     bool isNewFile;
 } FileInfo;
@@ -173,6 +174,8 @@ void initFileInfo(void)
     fileInfo = (FileInfo *)malloc(sizeof(FileInfo));
     fileInfo->filename = "No name";
     fileInfo->filetype = "no ft";
+    fileInfo->isFileReading = false;
+    fileInfo->isFileSaving = false;
     fileInfo->isUpdated = false;
     fileInfo->isNewFile = true;
 }
@@ -302,6 +305,7 @@ void print()
             prev_row_length(),
             current_row_length(),
             next_row_length());
+
     sprintf(rightMessage, "%s | %d/%d",
             fileInfo->filetype,
             position->y + 1, position->x);
@@ -461,6 +465,8 @@ void arrow(void)
 {
     getch();
     char ch = getch();
+    int crl = current_row_length();
+
     switch (ch)
     {
     case ARROW_UP:
@@ -478,8 +484,8 @@ void arrow(void)
         }
         else
         { // 윗줄이 커서의 x값보다 짧은 경우
-            int crl = current_row_length();
-            for (int i = 0; i < crl + 1; i++)
+
+            for (int i = 0; i < position->x + documentInfo->frameX + 1; i++)
             {
                 position->current = position->current->prev;
             }
@@ -508,7 +514,6 @@ void arrow(void)
     case ARROW_DOWN: // arrow down
         if (position->y + documentInfo->frameY == documentInfo->lineCount - 1)
             break;
-        int crl = current_row_length();
         int nrl = next_row_length();
         if (nrl > position->x + documentInfo->frameX)
         { // 아래 줄이 커서의 x값보다 긴 경우
@@ -517,7 +522,6 @@ void arrow(void)
                 position->current = position->current->next;
             }
             position->y++;
-            move(++position->y, position->x);
         }
         else
         { // 아래 줄이 커서의 x값보다 짧은 경우
@@ -611,10 +615,30 @@ void arrow(void)
         break;
 
     case HOME:
-        printw("HOME");
+        documentInfo->frameX = 0;
+
+        while (position->current->data != ENTER && position->current != head)
+        {
+            position->current = position->current->prev;
+        }
+        position->x = 0;
+        move(position->y, position->x);
         break;
     case END:
-        printw("END");
+        if (crl > windowSize->x)
+        {
+            documentInfo->frameX = crl - windowSize->x;
+            position->x = windowSize->x - 1;
+        }
+        else
+        {
+            position->x = crl;
+        }
+        while (position->current->next->data != ENTER && position->current->next != tail)
+        {
+            position->current = position->current->next;
+        }
+        move(position->y, position->x);
         break;
     case '5':
         getch();
@@ -625,20 +649,93 @@ void arrow(void)
         printw("PAGEUP");
         break;
     }
-    
 
-    // print();
+    print();
+}
+
+void saveFileAsFilename(char *filename)
+{
+    FILE *file = fopen(filename, "w");
+    Node *p = head->next;
+    while (p != tail->prev)
+    {
+        fputc((char)p->data, file);
+        p = p->next;
+    }
+    fclose(file);
+
+    for (int i = 0; i < windowSize->x; i++)
+    {
+        mvprintw(windowSize->y - 1, i, " ");
+    }
+
+    mvprintw(windowSize->y - 1, 0, "Save %s successfully.", filename);
 }
 
 void save(void)
 {
+    fileInfo->isFileSaving = true;
+    Position temp;
+
     if (fileInfo->isNewFile)
-    {
+    { // 새 파일인 경우
+        char newFilename[100];
+        int index = 0;
+
+        // 오른쪽의 메세지
+        char rightMessage[100];
+        sprintf(rightMessage, "Enter = save | Esc = cancel");
+        mvprintw(windowSize->y - 1, windowSize->x - strlen(rightMessage), rightMessage);
+
+        for (int i = 0; i < windowSize->x - strlen(rightMessage); i++)
+        {
+            mvprintw(windowSize->y - 1, i, " ");
+        }
+        move(windowSize->y - 1, 0);
+
+        while (1)
+        { // 파일이름 받아오기
+            char ch = getch();
+            if (ch == ENTER)
+            { // 파일 이름으로 저장하기
+                saveFileAsFilename(newFilename);
+                break;
+            }
+            else if (ch == BACKSPACE)
+            { // 파일 이름 backspace
+                for (int i = 0; i < index; i++)
+                {
+                    mvprintw(windowSize->y - 1, i, " ");
+                }
+                index--;
+                newFilename[index] = '\0';
+                mvprintw(windowSize->y - 1, 0, newFilename);
+            }
+            else
+            { // 파일 이름 쓰기
+                newFilename[index] = ch;
+                mvprintw(windowSize->y - 1, 0, newFilename);
+                index++;
+            }
+        }
     }
-    Node *p = head;
-    while (p->next == tail)
-    {
+    else
+    { // 기존에 있던 파일을 연 경우
+        if (fileInfo->isUpdated)
+        { // 변경사항이 있는 경우
+            saveFileAsFilename(fileInfo->filename);
+        }
+        else
+        {
+            for (int i = 0; i < windowSize->x; i++)
+            {
+                mvprintw(windowSize->y - 1, i, " ");
+            }
+            mvprintw(windowSize->y - 1, 0, "There are no changes to the file.");
+        }
     }
+    fileInfo->isFileSaving = false;
+    move(position->y, position->x);
 }
 
 void commonKey(int key)
@@ -662,6 +759,8 @@ void commonKey(int key)
 void readFile(char *filename)
 {
     fileInfo->isFileReading = true;
+    fileInfo->isNewFile = false;
+    // 파일의 확장자 가져오기
     char *dot = strrchr(filename, '.');
     if (dot)
         fileInfo->filetype = dot + 1;
@@ -678,11 +777,10 @@ void readFile(char *filename)
         {
             enter();
         }
-
         else
             commonKey(ch);
 
-        if (documentInfo->lineCount == windowSize->y && flag)
+        if (flag && documentInfo->lineCount == windowSize->y)
         {
             Node *p = position->current->prev;
             documentInfo->frameLastNode = p;
@@ -736,7 +834,11 @@ int main(int argc, char *argv[])
     {
         int key = getch();
         if (key == BACKSPACE)
+        {
             backspace();
+            fileInfo->isUpdated = true;
+        }
+
         else if (key == ENTER)
         {
             enter();
