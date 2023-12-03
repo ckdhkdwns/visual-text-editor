@@ -40,6 +40,8 @@
 #define PAGE_UP '5'
 #define PAGE_DOWN '6'
 
+#define ESC 27
+
 typedef struct Node
 {
     struct Node *prev;
@@ -53,6 +55,13 @@ typedef struct Position
     int y;
     Node *current;
 } Position;
+
+typedef struct PNode
+{ // find시에 탐색된 노드의 위치를 하이라이팅하기 위한 노드
+    struct PNode *prev;
+    struct PNode *next;
+    Position *position;
+} PNode;
 
 typedef struct WindowSize
 {
@@ -88,7 +97,7 @@ DocumentInfo *documentInfo;
 FileInfo *fileInfo;
 
 // related to lines
-void print(void);
+void print();
 
 // initalize
 void initLinkedList(void);
@@ -300,13 +309,16 @@ void print()
     char leftMessage[100];
     char rightMessage[100];
 
-    sprintf(leftMessage, "[%s] - %d lines ffn=%c fln=%c prl = %d crl = %d nrl = %d",
-            fileInfo->filename, documentInfo->lineCount,
-            documentInfo->frameFirstNode->next->data,
-            documentInfo->frameLastNode->prev->data,
-            prev_row_length(),
-            current_row_length(),
-            next_row_length());
+    if (fileInfo->isUpdated)
+    {
+        sprintf(leftMessage, "[%c%s] - %d lines",
+                '*', fileInfo->filename, documentInfo->lineCount);
+    }
+    else
+    {
+        sprintf(leftMessage, "[%s] - %d lines",
+                fileInfo->filename, documentInfo->lineCount);
+    }
 
     sprintf(rightMessage, "%s | %d/%d",
             fileInfo->filetype,
@@ -464,6 +476,93 @@ void enter(void)
     print();
 }
 
+void arrowUp(void)
+{
+    if (position->y == 0 && documentInfo->frameY == 0)
+        return;
+
+    int prl = prev_row_length();
+    if (prl > position->x + documentInfo->frameX)
+    { // 윗줄이 커서의 x값보다 긴 경우
+        for (int i = 0; i < prl + 1; i++)
+        {
+            position->current = position->current->prev;
+        }
+        position->y--;
+    }
+    else
+    { // 윗줄이 커서의 x값보다 짧은 경우
+
+        for (int i = 0; i < position->x + documentInfo->frameX + 1; i++)
+        {
+            position->current = position->current->prev;
+        }
+
+        if (prl < documentInfo->frameX)
+        {
+            documentInfo->frameX = prl;
+            position->x = 0;
+        }
+        else
+        {
+            position->x = prl - documentInfo->frameX;
+        }
+        position->y--;
+    }
+    if (position->y < 0)
+    {
+        position->y = 0;
+        moveFirstFrameLeft();
+        moveLastFrameLeft();
+        documentInfo->frameY--;
+    }
+    move(position->y, position->x);
+}
+
+void arrowDown(void)
+{
+
+    if (position->y + documentInfo->frameY == documentInfo->lineCount - 1)
+        return;
+    int crl = current_row_length();
+    int nrl = next_row_length();
+    if (nrl > position->x + documentInfo->frameX)
+    { // 아래 줄이 커서의 x값보다 긴 경우
+        for (int i = 0; i < crl + 1; i++)
+        {
+            position->current = position->current->next;
+        }
+        position->y++;
+    }
+    else
+    { // 아래 줄이 커서의 x값보다 짧은 경우
+        for (int i = 0; i < crl - (position->x + documentInfo->frameX) + nrl + 1; i++)
+        {
+            position->current = position->current->next;
+        }
+
+        if (nrl < documentInfo->frameX)
+        {
+            documentInfo->frameX = nrl;
+            position->x = 0;
+        }
+        else
+        {
+            position->y++;
+            position->x = nrl - documentInfo->frameX;
+        }
+    }
+    if (position->y > windowSize->y - 3)
+    {
+        position->y--;
+        moveFirstFrameRight();
+        moveLastFrameRight();
+        documentInfo->frameY++;
+    }
+    move(position->y, position->x);
+}
+
+void arrowRight(void) {}
 void arrow(void)
 {
     getch();
@@ -473,86 +572,10 @@ void arrow(void)
     switch (ch)
     {
     case ARROW_UP:
-        if (position->y == 0 && documentInfo->frameY == 0)
-            break;
 
-        int prl = prev_row_length();
-        if (prl > position->x + documentInfo->frameX)
-        { // 윗줄이 커서의 x값보다 긴 경우
-            for (int i = 0; i < prl + 1; i++)
-            {
-                position->current = position->current->prev;
-            }
-            position->y--;
-        }
-        else
-        { // 윗줄이 커서의 x값보다 짧은 경우
-
-            for (int i = 0; i < position->x + documentInfo->frameX + 1; i++)
-            {
-                position->current = position->current->prev;
-            }
-
-            if (prl < documentInfo->frameX)
-            {
-                documentInfo->frameX = prl;
-                position->x = 0;
-            }
-            else
-            {
-                position->x = prl - documentInfo->frameX;
-            }
-            position->y--;
-        }
-        if (position->y < 0)
-        {
-            position->y = 0;
-            moveFirstFrameLeft();
-            moveLastFrameLeft();
-            documentInfo->frameY--;
-        }
-        move(position->y, position->x);
         break;
 
     case ARROW_DOWN: // arrow down
-        if (position->y + documentInfo->frameY == documentInfo->lineCount - 1)
-            break;
-        int nrl = next_row_length();
-        if (nrl > position->x + documentInfo->frameX)
-        { // 아래 줄이 커서의 x값보다 긴 경우
-            for (int i = 0; i < crl + 1; i++)
-            {
-                position->current = position->current->next;
-            }
-            position->y++;
-        }
-        else
-        { // 아래 줄이 커서의 x값보다 짧은 경우
-            for (int i = 0; i < crl - (position->x + documentInfo->frameX) + nrl + 1; i++)
-            {
-                position->current = position->current->next;
-            }
-
-            if (nrl < documentInfo->frameX)
-            {
-                documentInfo->frameX = nrl;
-                position->x = 0;
-            }
-            else
-            {
-                position->y++;
-                position->x = nrl - documentInfo->frameX;
-            }
-        }
-        if (position->y > windowSize->y - 3)
-        {
-            position->y--;
-            moveFirstFrameRight();
-            moveLastFrameRight();
-            documentInfo->frameY++;
-        }
-        move(position->y, position->x);
-        break;
 
     case ARROW_RIGHT: // arrow right
         if (position->current->next == tail)
@@ -647,25 +670,30 @@ void arrow(void)
         getch();
         if (documentInfo->frameFirstNode == head)
             break;
-        if(documentInfo->frameY < windowSize->y - 2) {
+        if (documentInfo->frameY < windowSize->y - 2)
+        {
             int lineCount = documentInfo->frameY;
-            for(int i=0;i< lineCount; i++) {
+            for (int i = 0; i < lineCount; i++)
+            {
                 moveFirstFrameLeft();
                 moveLastFrameLeft();
             }
             documentInfo->frameY = 0;
-        } else {
-               documentInfo->frameLastNode = documentInfo->frameFirstNode;
-               moveLastFrameRight();
-               for(int i=0;i<windowSize->y-3;i++) {
+        }
+        else
+        {
+            documentInfo->frameLastNode = documentInfo->frameFirstNode;
+            moveLastFrameRight();
+            for (int i = 0; i < windowSize->y - 3; i++)
+            {
                 moveFirstFrameLeft();
-               }
-               documentInfo->frameY -= windowSize->y-3;
+            }
+            documentInfo->frameY -= windowSize->y - 3;
         }
         position->current = documentInfo->frameFirstNode;
         position->x = 0;
         position->y = 0;
-        
+
         move(position->y, position->x);
         break;
 
@@ -696,13 +724,14 @@ void arrow(void)
         position->current = documentInfo->frameFirstNode;
         position->x = 0;
         position->y = 0;
-        
+
         move(position->y, position->x);
         break;
     }
 
     print();
 }
+
 
 void saveFileAsFilename(char *filename)
 {
@@ -726,7 +755,6 @@ void saveFileAsFilename(char *filename)
 void save(void)
 {
     fileInfo->isFileSaving = true;
-    Position temp;
 
     if (fileInfo->isNewFile)
     { // 새 파일인 경우
@@ -851,13 +879,267 @@ void readFile(char *filename)
     print();
 }
 
+PNode *findWordsInDocument(char *word)
+{
+    Node *p = head->next;
+    PNode *wordListHead = (PNode *)malloc(sizeof(PNode));
+    PNode *wordListTail = (PNode *)malloc(sizeof(PNode));
+
+    wordListHead->next = wordListTail;
+    wordListHead->prev = wordListTail; // 한 방향으로만 접근 가능하도록 함 (반 원형 연결 리스트?)
+
+    wordListTail->prev = wordListHead;
+
+    int x = 0;
+    int y = 0;
+    while (p != tail)
+    {
+        bool valid = true;
+        if (p->data == ENTER)
+        {
+            x = 0;
+            y++;
+        }
+        else
+        {
+            Node *t = p;
+            for (int i = 0; i < strlen(word); i++)
+            {
+                if (t->data != word[i])
+                {
+                    valid = false;
+                    break;
+                }
+                t = t->next;
+            }
+            if (valid)
+            {
+                PNode *new = (PNode *)malloc(sizeof(PNode));
+                new->position = (Position *)malloc(sizeof(Position));
+                new->position->current = p;
+                new->position->x = x;
+                new->position->y = y;
+
+                new->next = wordListTail;
+                new->prev = wordListTail->prev;
+
+                wordListTail->prev->next = new;
+                wordListTail->prev = new;
+            }
+            x++;
+        }
+
+        p = p->next;
+    }
+    // PNode* p2 = wordListHead->next;
+    // while(p2->next != NULL) {
+    //     printw("x%d y%d", p2->position->x, p2->position->y);
+    //     p2 = p2->next;
+    // }
+    return wordListHead;
+}
+
+void highlight(PNode *p, char *word, int wordLength)
+{
+    if (p->position->x + wordLength < windowSize->x - 1)
+    {
+        documentInfo->frameX = 0;
+    }
+    else
+    {
+        documentInfo->frameX = p->position->x + wordLength - (windowSize->x - 1);
+    }
+
+    int paddingY = (int)(windowSize->y - 2) / 2; // 페이지 내에서 출력될 단어의 y 위치
+    if (p->position->y < windowSize->y - 2)
+    {
+        documentInfo->frameY = 0;
+        documentInfo->frameFirstNode = head;
+        documentInfo->frameLastNode = head;
+        for (int i = 0; i < windowSize->y - 2; i++)
+        {
+            moveLastFrameRight();
+        }
+        paddingY = p->position->y;
+    }
+    else
+    {
+        documentInfo->frameY = p->position->y - paddingY;
+        documentInfo->frameFirstNode = p->position->current;
+        documentInfo->frameLastNode = p->position->current;
+
+        for (int i = 0; i < paddingY + 1; i++)
+        {
+            moveFirstFrameLeft();
+        }
+        for (int i = 0; i < windowSize->y - 2 - paddingY; i++)
+        {
+            moveLastFrameRight();
+        }
+    }
+
+    print();
+    attron(COLOR_PAIR(1));
+    mvprintw(paddingY, p->position->x - documentInfo->frameX, "%s", word);
+    attroff(COLOR_PAIR(1));
+    move(windowSize->y - 1, wordLength - 1);
+}
+
+void printFindMessageBar(char *word, int currentResultIndex, int resultCount)
+{
+    for (int i = 0; i < windowSize->x; i++)
+    {
+        mvaddch(windowSize->y - 1, i, ' ');
+    }
+    char rightMessage[100];
+    sprintf(rightMessage, "[%d/%d] Arrows = prev/next | Enter = edit | Esc = cancel", currentResultIndex, resultCount);
+
+    mvprintw(windowSize->y - 1, 0, word);
+    mvprintw(windowSize->y - 1, windowSize->x - strlen(rightMessage), rightMessage);
+    move(windowSize->y - 1, strlen(word));
+}
+
+int countFindResult(PNode *wordListHead)
+{
+    PNode *p = wordListHead;
+    int count = 0;
+    while (p->next != NULL) // 위의 원형 리스트에서 tail에서는 head로의 연결을 해놓지 않았기 때문에 null로 리스트의 끝을 알수 있음
+    {
+        count++;
+        p = p->next;
+    }
+    return count - 1;
+}
+
 void find(void)
 {
     char word[100];
-    char rightMessage[100];
-    sprintf(rightMessage, "Arrows = prev/next result | Enter = go | Esc = cancel");
-    mvprintw(windowSize->y - 1, windowSize->x - strlen(rightMessage), rightMessage);
+    printFindMessageBar(word, 0, 0);
+
+    // 포기시 원래위치
+    Position *tempPosition = position;
+    Node *tempFFN = documentInfo->frameFirstNode;
+    Node *tempFLN = documentInfo->frameLastNode;
+    int tempFX = documentInfo->frameX;
+    int tempFY = documentInfo->frameY;
+
+    PNode *wordListHead = (PNode *)malloc(sizeof(PNode));
+    PNode *highlightedWord;
+    int resultCount = 0;
+    int currentResultIndex = 0;
+    int wordIndex = 0;
+    while (1)
+    {
+        int ch = getch();
+        if (ch == ENTER)
+        { // 현재 하이라이트되어있는 위치로 이동
+            position->current = highlightedWord->position->current->prev;
+            for (int i = 0; i < strlen(word); i++)
+            {
+                position->current = position->current->next;
+            }
+
+            position->x = highlightedWord->position->x + wordIndex - documentInfo->frameX;
+            position->y = highlightedWord->position->y - documentInfo->frameY;
+            print();
+            break;
+        }
+        else if (ch == BACKSPACE)
+        {
+            wordIndex--;
+            word[wordIndex] = '\0';
+            wordListHead = findWordsInDocument(word);
+            resultCount = countFindResult(wordListHead);
+
+            if (wordIndex == 0 || resultCount == 0)
+            {
+                position = tempPosition;
+                documentInfo->frameFirstNode = tempFFN;
+                documentInfo->frameLastNode = tempFLN;
+                documentInfo->frameX = tempFX;
+                documentInfo->frameY = tempFY;
+                print();
+                printFindMessageBar(word, 0, 0);
+            }
+            else
+            {
+                highlightedWord = wordListHead->next;
+                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+                printFindMessageBar(word, currentResultIndex, resultCount);
+            }
+        }
+        else if (ch == ARROWS)
+        {
+            getch();
+            switch (getch())
+            {
+            case ARROW_RIGHT:
+                if (resultCount == 0)
+                    break;
+                if (currentResultIndex == resultCount)
+                {
+                    currentResultIndex = 1;
+                    highlightedWord = wordListHead->next;
+                }
+                else
+                {
+                    currentResultIndex++;
+                    highlightedWord = highlightedWord->next;
+                }
+
+                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+                printFindMessageBar(word, currentResultIndex, resultCount);
+                break;
+            case ARROW_LEFT:
+                if (resultCount == 0)
+                    break;
+                if (currentResultIndex == 1)
+                {
+                    currentResultIndex = resultCount;
+                    highlightedWord = wordListHead->prev->prev; // 위에서 언급한 반 원형 연결 리스트? 의 활용
+                }
+                else
+                {
+                    currentResultIndex--;
+                    highlightedWord = highlightedWord->prev;
+                }
+
+                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+                printFindMessageBar(word, currentResultIndex, resultCount);
+                break;
+            }
+        }
+        else
+        {
+            word[wordIndex] = ch;
+            wordIndex++;
+
+            wordListHead = findWordsInDocument(word);
+
+            resultCount = countFindResult(wordListHead);
+            if (wordIndex == 0 || resultCount == 0)
+            {
+                position = tempPosition;
+                documentInfo->frameFirstNode = tempFFN;
+                documentInfo->frameLastNode = tempFLN;
+                documentInfo->frameX = tempFX;
+                documentInfo->frameY = tempFY;
+                print();
+                printFindMessageBar(word, 0, 0);
+            }
+            else
+            {
+                currentResultIndex = 1;
+                highlightedWord = wordListHead->next;
+                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+                printFindMessageBar(word, 1, resultCount);
+            }
+        }
+    }
+    free(wordListHead);
+    free(highlightedWord);
 }
+
 void ctrl_q(void)
 {
     if (fileInfo->isUpdated)
@@ -898,7 +1180,7 @@ int main(int argc, char *argv[])
 
     print();
     disableCtrlFunctions();
-
+    keypad(stdscr, TRUE);
     if (argv[1] != NULL)
         readFile(argv[1]);
 
@@ -907,28 +1189,31 @@ int main(int argc, char *argv[])
         int key = getch();
         if (key == BACKSPACE)
         {
-            backspace();
             fileInfo->isUpdated = true;
+            backspace();
         }
 
         else if (key == ENTER)
         {
-            enter();
             fileInfo->isUpdated = true;
+            enter();
+        }
+        else if (key == KEY_UP)
+        {
+            assert(false);
         }
         else if (key == ARROWS)
             arrow();
         else if (key == CTRL('f'))
-            save();
+            find();
         else if (key == CTRL('s'))
             save();
         else if (key == CTRL('q'))
             ctrl_q();
-
         else
         {
-            commonKey(key);
             fileInfo->isUpdated = true;
+            commonKey(key);
         }
     }
     return 0;
