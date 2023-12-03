@@ -30,16 +30,6 @@
 #define FN(c) ((c) & 0x1B)
 #endif
 
-#define ARROWS 033
-#define ARROW_UP 'A'
-#define ARROW_DOWN 'B'
-#define ARROW_RIGHT 'C'
-#define ARROW_LEFT 'D'
-#define END 'F'
-#define HOME 'H'
-#define PAGE_UP '5'
-#define PAGE_DOWN '6'
-
 #define ESC 27
 
 typedef struct Node
@@ -57,7 +47,7 @@ typedef struct Position
 } Position;
 
 typedef struct PNode
-{ // find시에 탐색된 노드의 위치를 하이라이팅하기 위한 노드
+{ // find시에 탐색된 노드의 위치를 알기 위한 노드
     struct PNode *prev;
     struct PNode *next;
     Position *position;
@@ -72,7 +62,6 @@ typedef struct WindowSize
 typedef struct DocumentInfo
 {
     int lineCount;
-
     Node *frameFirstNode;
     Node *frameLastNode;
     int frameX;
@@ -96,14 +85,15 @@ WindowSize *windowSize;
 DocumentInfo *documentInfo;
 FileInfo *fileInfo;
 
-// related to lines
-void print();
+// just print;
+void print(void);
 
 // initalize
 void initLinkedList(void);
 void initCurses(void);
 void initWindowSize(void);
 void initDocumentInfo(void);
+void initFileInfo(void);
 
 // linked list
 void insert(int data);
@@ -117,10 +107,31 @@ int next_row_length(void);
 // key
 void backspace(void);
 void enter(void);
-void arrow(void);
-void save(void);
+void arrowUp(void);
+void arrowDown(void);
+void arrowRight(void);
+void arrowLeft(void);
+void home(void);
+void end(void);
+void pageUp(void);
+void pageDown(void);
 void commonKey(int key);
 
+// ctrl Functions
+void save(void);
+void quit(void);
+void find(void);
+
+// in order to save
+void saveFileAsFilename(char *filename);
+
+// in order to find
+void highlight(PNode *p, char *word, int wordLength);
+void printFindMessageBar(char *word, int currentResultIndex, int resultCount);
+int countFindResult(PNode *wordListHead);
+PNode *findWordsInDocument(char *word);
+
+// move page frame
 void moveFirstFrameRight(void);
 void moveLastFrameLeft(void);
 void moveFirstFrameLeft(void);
@@ -147,6 +158,7 @@ void initLinkedList(void)
 void initCurses(void)
 {
     initscr();
+    keypad(stdscr, TRUE);
     start_color();
     init_color(1, 0, 0, 0);
     init_color(2, 1000, 1000, 1000);
@@ -277,7 +289,7 @@ int next_row_length(void)
     return count;
 }
 
-void print()
+void print(void)
 {
     if (fileInfo->isFileReading)
         return;
@@ -517,6 +529,7 @@ void arrowUp(void)
         documentInfo->frameY--;
     }
     move(position->y, position->x);
+    print();
 }
 
 void arrowDown(void)
@@ -560,178 +573,175 @@ void arrowDown(void)
         documentInfo->frameY++;
     }
     move(position->y, position->x);
+    print();
 }
 
-void arrowRight(void) {}
-void arrow(void)
+void arrowRight(void)
 {
-    getch();
-    char ch = getch();
-    int crl = current_row_length();
+    if (position->current->next == tail)
+        return;
+    position->current = position->current->next;
 
-    switch (ch)
+    if (position->current->data == ENTER)
     {
-    case ARROW_UP:
-
-        break;
-
-    case ARROW_DOWN: // arrow down
-
-    case ARROW_RIGHT: // arrow right
-        if (position->current->next == tail)
-            break;
-        position->current = position->current->next;
-
-        if (position->current->data == ENTER)
-        {
-            documentInfo->frameX = 0;
-            position->y++;
-            position->x = 0;
-        }
-        else if (position->x == windowSize->x - 2)
-        {
-            documentInfo->frameX++;
-        }
-        else
-        {
-            position->x++;
-        }
-        if (position->y == windowSize->y - 2)
-        {
-            position->y--;
-            move(position->y, position->x);
-            moveFirstFrameRight();
-            moveLastFrameRight();
-        }
-        move(position->y, position->x);
-        break;
-    case ARROW_LEFT: // arrow left
-        if (position->current == head)
-            break;
-        if (position->current->data == ENTER)
-        { // 라인의 제일 첫번째에서 왼쪽 화살표를 누른 경우
-            int prl = prev_row_length();
-
-            if (prl > windowSize->x - 1)
-            {
-                documentInfo->frameX = prl - windowSize->x - 1;
-                position->x = windowSize->x - 1;
-            }
-            else
-            {
-                position->x = prl;
-            }
-
-            if (position->current == documentInfo->frameFirstNode)
-            { // 페이지의 제일 첫 부분인 경우
-                moveFirstFrameLeft();
-                moveLastFrameLeft();
-            }
-            else
-            {
-                position->y--;
-            }
-        }
-        else
-        {
-            position->x--;
-        }
-        move(position->y, position->x);
-        position->current = position->current->prev;
-        break;
-
-    case HOME:
         documentInfo->frameX = 0;
-
-        while (position->current->data != ENTER && position->current != head)
-        {
-            position->current = position->current->prev;
-        }
+        position->y++;
         position->x = 0;
+    }
+    else if (position->x == windowSize->x - 2)
+    {
+        documentInfo->frameX++;
+    }
+    else
+    {
+        position->x++;
+    }
+    if (position->y == windowSize->y - 2)
+    {
+        position->y--;
         move(position->y, position->x);
-        break;
-    case END:
-        if (crl > windowSize->x)
+        moveFirstFrameRight();
+        moveLastFrameRight();
+    }
+    move(position->y, position->x);
+    print();
+}
+
+void arrowLeft(void)
+{
+    if (position->current == head)
+        return;
+    if (position->current->data == ENTER)
+    { // 라인의 제일 첫번째에서 왼쪽 화살표를 누른 경우
+        int prl = prev_row_length();
+
+        if (prl > windowSize->x - 1)
         {
-            documentInfo->frameX = crl - windowSize->x;
+            documentInfo->frameX = prl - windowSize->x - 1;
             position->x = windowSize->x - 1;
         }
         else
         {
-            position->x = crl;
+            position->x = prl;
         }
-        while (position->current->next->data != ENTER && position->current->next != tail)
-        {
-            position->current = position->current->next;
-        }
-        move(position->y, position->x);
-        break;
-    case PAGE_UP:
-        getch();
-        if (documentInfo->frameFirstNode == head)
-            break;
-        if (documentInfo->frameY < windowSize->y - 2)
-        {
-            int lineCount = documentInfo->frameY;
-            for (int i = 0; i < lineCount; i++)
-            {
-                moveFirstFrameLeft();
-                moveLastFrameLeft();
-            }
-            documentInfo->frameY = 0;
-        }
-        else
-        {
-            documentInfo->frameLastNode = documentInfo->frameFirstNode;
-            moveLastFrameRight();
-            for (int i = 0; i < windowSize->y - 3; i++)
-            {
-                moveFirstFrameLeft();
-            }
-            documentInfo->frameY -= windowSize->y - 3;
-        }
-        position->current = documentInfo->frameFirstNode;
-        position->x = 0;
-        position->y = 0;
 
-        move(position->y, position->x);
-        break;
-
-    case PAGE_DOWN:
-        getch();
-        if (documentInfo->frameLastNode == tail)
-            break;
-        if (documentInfo->frameY + windowSize->y - 2 + windowSize->y - 2 > documentInfo->lineCount)
-        { // 한 페이지 전체를 넘길 수 없는 경우
-            int moveLineCount = documentInfo->lineCount - documentInfo->frameY - (windowSize->y - 2);
-            for (int i = 0; i < moveLineCount; i++)
-            {
-                moveFirstFrameRight();
-                moveLastFrameRight();
-            }
-            documentInfo->frameY += moveLineCount;
-        }
-        else
-        { // 한 페이지 전체를 넘길 수 있음
-            documentInfo->frameFirstNode = documentInfo->frameLastNode;
+        if (position->current == documentInfo->frameFirstNode)
+        { // 페이지의 제일 첫 부분인 경우
             moveFirstFrameLeft();
-            for (int i = 0; i < windowSize->y - 3; i++)
-            {
-                moveLastFrameRight();
-            }
-            documentInfo->frameY += windowSize->y - 3;
+            moveLastFrameLeft();
         }
-        position->current = documentInfo->frameFirstNode;
-        position->x = 0;
-        position->y = 0;
-
-        move(position->y, position->x);
-        break;
+        else
+        {
+            position->y--;
+        }
     }
-
+    else
+    {
+        position->x--;
+    }
+    move(position->y, position->x);
+    position->current = position->current->prev;
     print();
 }
 
+void home(void)
+{
+    documentInfo->frameX = 0;
+
+    while (position->current->data != ENTER && position->current != head)
+    {
+        position->current = position->current->prev;
+    }
+    position->x = 0;
+    move(position->y, position->x);
+    print();
+}
+
+void end(void)
+{
+    int crl = current_row_length();
+    if (crl > windowSize->x)
+    {
+        documentInfo->frameX = crl - windowSize->x;
+        position->x = windowSize->x - 1;
+    }
+    else
+    {
+        position->x = crl;
+    }
+    while (position->current->next->data != ENTER && position->current->next != tail)
+    {
+        position->current = position->current->next;
+    }
+    move(position->y, position->x);
+    print();
+}
+
+void pageUp(void)
+{
+
+    if (documentInfo->frameFirstNode == head)
+        return;
+    if (documentInfo->frameY < windowSize->y - 2)
+    {
+        int lineCount = documentInfo->frameY;
+        for (int i = 0; i < lineCount; i++)
+        {
+            moveFirstFrameLeft();
+            moveLastFrameLeft();
+        }
+        documentInfo->frameY = 0;
+    }
+    else
+    {
+        documentInfo->frameLastNode = documentInfo->frameFirstNode;
+        moveLastFrameRight();
+        for (int i = 0; i < windowSize->y - 3; i++)
+        {
+            moveFirstFrameLeft();
+        }
+        documentInfo->frameY -= windowSize->y - 3;
+    }
+    position->current = documentInfo->frameFirstNode;
+    position->x = 0;
+    position->y = 0;
+
+    move(position->y, position->x);
+    print();
+}
+
+void pageDown(void)
+{
+    if (documentInfo->frameLastNode == tail)
+        return;
+
+    if (documentInfo->frameY + windowSize->y - 2 + windowSize->y - 2 > documentInfo->lineCount)
+    { // 한 페이지 전체를 넘길 수 없는 경우
+        int moveLineCount = documentInfo->lineCount - documentInfo->frameY - (windowSize->y - 2);
+        for (int i = 0; i < moveLineCount; i++)
+        {
+            moveFirstFrameRight();
+            moveLastFrameRight();
+        }
+        documentInfo->frameY += moveLineCount;
+    }
+    else
+    { // 한 페이지 전체를 넘길 수 있음
+        documentInfo->frameFirstNode = documentInfo->frameLastNode;
+        moveFirstFrameLeft();
+        for (int i = 0; i < windowSize->y - 3; i++)
+        {
+            moveLastFrameRight();
+        }
+        documentInfo->frameY += windowSize->y - 3;
+    }
+    position->current = documentInfo->frameFirstNode;
+    position->x = 0;
+    position->y = 0;
+
+    move(position->y, position->x);
+    print();
+}
 
 void saveFileAsFilename(char *filename)
 {
@@ -1028,6 +1038,8 @@ void find(void)
     int resultCount = 0;
     int currentResultIndex = 0;
     int wordIndex = 0;
+
+
     while (1)
     {
         int ch = getch();
@@ -1068,46 +1080,45 @@ void find(void)
                 printFindMessageBar(word, currentResultIndex, resultCount);
             }
         }
-        else if (ch == ARROWS)
+        else if (ch == KEY_RIGHT)
         {
-            getch();
-            switch (getch())
+            if (resultCount == 0)
+                continue;
+            if (currentResultIndex == resultCount)
             {
-            case ARROW_RIGHT:
-                if (resultCount == 0)
-                    break;
-                if (currentResultIndex == resultCount)
-                {
-                    currentResultIndex = 1;
-                    highlightedWord = wordListHead->next;
-                }
-                else
-                {
-                    currentResultIndex++;
-                    highlightedWord = highlightedWord->next;
-                }
-
-                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
-                printFindMessageBar(word, currentResultIndex, resultCount);
-                break;
-            case ARROW_LEFT:
-                if (resultCount == 0)
-                    break;
-                if (currentResultIndex == 1)
-                {
-                    currentResultIndex = resultCount;
-                    highlightedWord = wordListHead->prev->prev; // 위에서 언급한 반 원형 연결 리스트? 의 활용
-                }
-                else
-                {
-                    currentResultIndex--;
-                    highlightedWord = highlightedWord->prev;
-                }
-
-                highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
-                printFindMessageBar(word, currentResultIndex, resultCount);
-                break;
+                currentResultIndex = 1;
+                highlightedWord = wordListHead->next;
             }
+            else
+            {
+                currentResultIndex++;
+                highlightedWord = highlightedWord->next;
+            }
+
+            highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+            printFindMessageBar(word, currentResultIndex, resultCount);
+        }
+        else if (ch == KEY_LEFT)
+        {
+            if (resultCount == 0)
+                continue;
+            if (currentResultIndex == 1)
+            {
+                currentResultIndex = resultCount;
+                highlightedWord = wordListHead->prev->prev; // 위에서 언급한 반 원형 연결 리스트? 의 활용
+            }
+            else
+            {
+                currentResultIndex--;
+                highlightedWord = highlightedWord->prev;
+            }
+
+            highlight(highlightedWord, word, wordIndex + 1); // wordLength == wordIndex + 1
+            printFindMessageBar(word, currentResultIndex, resultCount);
+        }
+        else if(ch == ESC) {
+            print();
+            break;
         }
         else
         {
@@ -1137,10 +1148,9 @@ void find(void)
         }
     }
     free(wordListHead);
-    free(highlightedWord);
 }
 
-void ctrl_q(void)
+void quit(void)
 {
     if (fileInfo->isUpdated)
     {
@@ -1180,7 +1190,7 @@ int main(int argc, char *argv[])
 
     print();
     disableCtrlFunctions();
-    keypad(stdscr, TRUE);
+
     if (argv[1] != NULL)
         readFile(argv[1]);
 
@@ -1199,17 +1209,29 @@ int main(int argc, char *argv[])
             enter();
         }
         else if (key == KEY_UP)
-        {
-            assert(false);
-        }
-        else if (key == ARROWS)
-            arrow();
+            arrowUp();
+        else if (key == KEY_DOWN)
+            arrowDown();
+        else if (key == KEY_RIGHT)
+            arrowRight();
+        else if (key == KEY_LEFT)
+            arrowLeft();
+        else if (key == KEY_HOME)
+            home();
+        else if (key == KEY_END)
+            end();
+
+        else if (key == KEY_PPAGE)
+            pageUp();
+        else if (key == KEY_NPAGE)
+            pageDown();
+
         else if (key == CTRL('f'))
             find();
         else if (key == CTRL('s'))
             save();
         else if (key == CTRL('q'))
-            ctrl_q();
+            quit();
         else
         {
             fileInfo->isUpdated = true;
