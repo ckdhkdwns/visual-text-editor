@@ -85,6 +85,9 @@ WindowSize *windowSize;
 DocumentInfo *documentInfo;
 FileInfo *fileInfo;
 
+Node* enterHead;
+Node* enterTail;
+Node* currentLine;
 // just print;
 void print(void);
 
@@ -662,7 +665,7 @@ void end(void)
     int crl = current_row_length();
     if (crl > windowSize->x)
     {
-        documentInfo->frameX = crl - windowSize->x;
+        documentInfo->frameX = crl - windowSize->x + 1;
         position->x = windowSize->x - 1;
     }
     else
@@ -1169,6 +1172,26 @@ void quit(void)
     exit(0);
 }
 
+void resize(void) {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    int tempY = windowSize->y;
+    windowSize->x = (int)w.ws_col;
+    windowSize->y = (int)w.ws_row;
+
+    if(tempY < windowSize->y) {
+        for(int i=0;i<windowSize->y - tempY;i++) {
+            moveLastFrameRight();
+        }
+    } else {
+        for(int i=0;i<tempY - windowSize->y;i++) {
+            moveLastFrameLeft();
+        }
+    }
+    print();
+}
+
 struct termios orig_termios;
 
 void disableCtrlFunctions()
@@ -1220,7 +1243,8 @@ int main(int argc, char *argv[])
             home();
         else if (key == KEY_END)
             end();
-
+        else if(key == KEY_RESIZE) 
+            resize();
         else if (key == KEY_PPAGE)
             pageUp();
         else if (key == KEY_NPAGE)
