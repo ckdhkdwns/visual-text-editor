@@ -1,36 +1,38 @@
-#include <ncurses.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <sys/ioctl.h>
 #include <signal.h>
-#include <termios.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <windows.h>
 
 #ifdef LINUX
 
 #endif
 
-#ifdef MACOS
+#ifdef MACOS, LINUX
+#include <ncurses.h>
+#include <sys.ioctl.h>
+#include <termios.h>
 #define BACKSPACE 127
-#endif
-
-#ifdef WINDOWS
-#define BACKSPACE 8
-#endif
-
-#define BACKSPACE 127
-#define ENTER 10
-#ifndef CTRL
 #define CTRL(c) ((c) & 037)
 #endif
 
-#ifndef FN
-#define FN(c) ((c) & 0x1B)
+
+
+#ifdef WINDOWS
+#include <windows.h>
+#include <ncurses/ncurses.h>
+#define BACKSPACE 8
+#define CTRL(x) ((x) & 0x1f)
 #endif
 
+#define ENTER 10
+
+
 #define ESC 27
+#define true 1
+#define false 0
 
 typedef struct Node
 {
@@ -160,24 +162,40 @@ void initLinkedList(void)
 
 void initCurses(void)
 {
-    initscr();
-    keypad(stdscr, TRUE);
+    initscr(); 
+    keypad(stdscr, TRUE);    
     start_color();
-    init_color(1, 0, 0, 0);
-    init_color(2, 1000, 1000, 1000);
-    init_pair(1, 1, 2);
+    init_pair(1, COLOR_BLACK, COLOR_WHITE);
     noecho();
     move(0, 0);
 }
 
 void initWindowSize(void)
-{
+{   
     windowSize = (WindowSize *)malloc(sizeof(WindowSize));
+
+
+    #ifdef MACOS, LINUX
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
     windowSize->x = (int)w.ws_col;
     windowSize->y = (int)w.ws_row;
+    #endif
+
+
+    #ifdef WINDOWS
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int ret;
+    ret = GetConsoleScreenBufferInfo(GetStdHandle( STD_OUTPUT_HANDLE ),&csbi);
+
+    if(ret)
+    {
+        windowSize->x = csbi.dwSize.X;
+        windowSize->y = csbi.dwSize.Y;
+
+    }
+    #endif
 }
 
 void initDocumentInfo(void)
@@ -198,6 +216,7 @@ void initDocumentInfo(void)
 void initFileInfo(void)
 {
     fileInfo = (FileInfo *)malloc(sizeof(FileInfo));
+
     fileInfo->filename = "No name";
     fileInfo->filetype = "no ft";
     fileInfo->isFileReading = false;
@@ -297,10 +316,13 @@ void print(void)
     if (fileInfo->isFileReading)
         return;
     clear();
+    
     Node *p = documentInfo->frameFirstNode;
-
+        
     int colCount = 0;
     int rowCount = 0;
+
+    
     while (p->next != documentInfo->frameLastNode && p->next != tail)
     {
         if (p->next->data == ENTER)
@@ -318,15 +340,16 @@ void print(void)
         }
         p = p->next;
     }
-
+ 
     attron(COLOR_PAIR(1));
+
 
     char leftMessage[100];
     char rightMessage[100];
 
     if (fileInfo->isUpdated)
     {
-        sprintf(leftMessage, "[%c%s] - %d lines",
+        sprintf(leftMessage, "[%c %s] - %d lines",
                 '*', fileInfo->filename, documentInfo->lineCount);
     }
     else
@@ -339,9 +362,10 @@ void print(void)
             fileInfo->filetype,
             position->y + 1 + documentInfo->frameY,
             position->x + documentInfo->frameX);
-
+    
     mvprintw(windowSize->y - 2, 0, "%s", leftMessage);
     mvprintw(windowSize->y - 2, windowSize->x - strlen(rightMessage), "%s", rightMessage);
+
     for (int i = strlen(leftMessage); i < windowSize->x - strlen(rightMessage); ++i)
     {
         mvaddch(windowSize->y - 2, i, ' ');
@@ -350,12 +374,15 @@ void print(void)
 
     mvprintw(windowSize->y - 1, 0, "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
+
     // 글이 없는 경우에는 ~표시를 하기
     for (int i = 0; i < windowSize->y - documentInfo->lineCount - 2; i++)
     {
         mvprintw(windowSize->y - 3 - i, 0, "~");
     }
     move(position->y, position->x);
+
+
 }
 
 void moveFirstFrameRight(void)
@@ -750,7 +777,7 @@ void saveFileAsFilename(char *filename)
 {
     FILE *file = fopen(filename, "w");
     Node *p = head->next;
-    while (p != tail->prev)
+    while (p != tail)
     {
         fputc((char)p->data, file);
         p = p->next;
@@ -763,6 +790,9 @@ void saveFileAsFilename(char *filename)
     }
 
     mvprintw(windowSize->y - 1, 0, "Save %s successfully.", filename);
+    fileInfo->filename = filename;
+
+    fileInfo->isNewFile = false;
 }
 
 void save(void)
@@ -772,6 +802,9 @@ void save(void)
     if (fileInfo->isNewFile)
     { // 새 파일인 경우
         char newFilename[100];
+        for(int i=0;i<100;i++) {
+            newFilename[i] = '\0';
+        }
         int index = 0;
 
         // 오른쪽의 메세지
@@ -785,9 +818,9 @@ void save(void)
         }
         move(windowSize->y - 1, 0);
 
-        while (1)
+        while (true)
         { // 파일이름 받아오기
-            char ch = getch();
+            int ch = getch();
             if (ch == ENTER)
             { // 파일 이름으로 저장하기
                 saveFileAsFilename(newFilename);
@@ -803,6 +836,10 @@ void save(void)
                 newFilename[index] = '\0';
                 mvprintw(windowSize->y - 1, 0, newFilename);
             }
+            else if (ch == ESC) {
+                print();
+                return;
+            }
             else
             { // 파일 이름 쓰기
                 newFilename[index] = ch;
@@ -810,6 +847,7 @@ void save(void)
                 index++;
             }
         }
+
     }
     else
     { // 기존에 있던 파일을 연 경우
@@ -1026,7 +1064,20 @@ int countFindResult(PNode *wordListHead)
 
 void find(void)
 {
+    if(head->next == tail) {
+        for (int i = 0; i < windowSize->x; i++)
+        {
+            mvaddch(windowSize->y - 1, i, ' ');
+        }
+        mvprintw(windowSize->y - 1, 0, "There is no characters.");
+        move(position->y, position->x);
+        return;
+    }
     char word[100];
+    for(int i=0;i<100;i++) {
+        word[i] = '\0';
+    }
+
     printFindMessageBar(word, 0, 0);
 
     // 포기시 원래위치
@@ -1043,7 +1094,7 @@ void find(void)
     int wordIndex = 0;
 
 
-    while (1)
+    while (true)
     {
         int ch = getch();
         if (ch == ENTER)
@@ -1061,6 +1112,7 @@ void find(void)
         }
         else if (ch == BACKSPACE)
         {
+            if(wordIndex == 0) continue;
             wordIndex--;
             word[wordIndex] = '\0';
             wordListHead = findWordsInDocument(word);
@@ -1159,7 +1211,7 @@ void quit(void)
     {
         for (int i = 0; i < windowSize->x; i++)
             mvprintw(windowSize->y - 1, i, " ");
-        mvprintw(windowSize->y - 1, 0, "Press Ctrl-q again to leave without saving.");
+        mvprintw(windowSize->y - 1, 0, "Press Ctrl-q again to leave without saving. Or Press any key to continue editing.");
         int ch = getch();
         if (ch != CTRL('q'))
         {
@@ -1173,12 +1225,25 @@ void quit(void)
 }
 
 void resize(void) {
+    int tempY = windowSize->y;
+    #ifdef MACOS, LINUX
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-
-    int tempY = windowSize->y;
     windowSize->x = (int)w.ws_col;
     windowSize->y = (int)w.ws_row;
+    #endif
+
+    #ifdef WINDOWS
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int ret;
+    ret = GetConsoleScreenBufferInfo(GetStdHandle( STD_OUTPUT_HANDLE ),&csbi);
+
+    if(ret)
+    {
+        windowSize->x = csbi.dwSize.X;
+        windowSize->y = csbi.dwSize.Y;
+    }
+    #endif
 
     if(tempY < windowSize->y) {
         for(int i=0;i<windowSize->y - tempY;i++) {
@@ -1192,8 +1257,9 @@ void resize(void) {
     print();
 }
 
-struct termios orig_termios;
 
+#ifdef MACOS, LINUX
+struct termios orig_termios;
 void disableCtrlFunctions()
 {
     tcgetattr(STDIN_FILENO, &orig_termios);
@@ -1202,22 +1268,28 @@ void disableCtrlFunctions()
     raw.c_lflag &= ~(IEXTEN | ISIG | ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
+#endif
 
 int main(int argc, char *argv[])
 {
     initLinkedList();
     initCurses();
+    
     initWindowSize();
+
+
     initDocumentInfo();
     initFileInfo();
-
     print();
+
+    #ifdef MACOS, LINUX
     disableCtrlFunctions();
+    #endif
 
     if (argv[1] != NULL)
         readFile(argv[1]);
 
-    while (1)
+    while (true)
     {
         int key = getch();
         if (key == BACKSPACE)
@@ -1244,7 +1316,7 @@ int main(int argc, char *argv[])
         else if (key == KEY_END)
             end();
         else if(key == KEY_RESIZE) 
-            resize();
+            resize();   
         else if (key == KEY_PPAGE)
             pageUp();
         else if (key == KEY_NPAGE)

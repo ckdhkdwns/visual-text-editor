@@ -8,14 +8,13 @@ ifeq ($(shell uname), Darwin)
 	CFLAGS += -DMACOS
 endif
 ifeq ($(OS), Windows_NT)
-    CC = mingw32-gcc
 	CFLAGS += -DWINDOWS
 endif
 
 all: vite
 
 vite: main.c
-	$(CC) $(CFLAGS) -o vite main.c -lcurses
+	$(CC) $(CFLAGS) -o vite main.c -lncurses
 
 clean:
 	rm -f vite

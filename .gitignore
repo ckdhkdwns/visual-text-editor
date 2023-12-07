@@ -18,3 +18,10 @@ main
 *.txt
 asdfsadfsadf
 asdf
+.vs/ProjectSettings.json
+.vs/slnx.sqlite
+*.exe
+.vs/visual-text-editor/v16/.suo
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+.vs/VSWorkspaceState.json
