@@ -4,18 +4,22 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
-#include <windows.h>
 
 #ifdef LINUX
-
-#endif
-
-#ifdef MACOS, LINUX
 #include <ncurses.h>
-#include <sys.ioctl.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #define BACKSPACE 127
 #define CTRL(c) ((c) & 037)
+#endif
+
+#ifdef MACOS
+#define BACKSPACE 127
+#define CTRL(c) ((c) & 037)
+
+#include <ncurses.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #endif
 
 
@@ -174,8 +178,15 @@ void initWindowSize(void)
 {   
     windowSize = (WindowSize *)malloc(sizeof(WindowSize));
 
+    #ifdef LINUX
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
-    #ifdef MACOS, LINUX
+    windowSize->x = (int)w.ws_col;
+    windowSize->y = (int)w.ws_row;
+    #endif
+
+    #ifdef MACOS
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
@@ -1226,7 +1237,14 @@ void quit(void)
 
 void resize(void) {
     int tempY = windowSize->y;
-    #ifdef MACOS, LINUX
+    #ifdef LINUX
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    windowSize->x = (int)w.ws_col;
+    windowSize->y = (int)w.ws_row;
+    #endif
+
+    #ifdef MACOS
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     windowSize->x = (int)w.ws_col;
@@ -1257,8 +1275,19 @@ void resize(void) {
     print();
 }
 
+#ifdef LINUX
+struct termios orig_termios;
+void disableCtrlFunctions()
+{
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    struct termios raw = orig_termios;
+    raw.c_iflag &= ~(IXON);
+    raw.c_lflag &= ~(IEXTEN | ISIG | ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+#endif
 
-#ifdef MACOS, LINUX
+#ifdef MACOS
 struct termios orig_termios;
 void disableCtrlFunctions()
 {
@@ -1282,7 +1311,11 @@ int main(int argc, char *argv[])
     initFileInfo();
     print();
 
-    #ifdef MACOS, LINUX
+    #ifdef LINUX
+    disableCtrlFunctions();
+    #endif
+
+    #ifdef MACOS
     disableCtrlFunctions();
     #endif
 
